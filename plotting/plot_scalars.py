@@ -99,12 +99,23 @@ if 'mhd' in root_dir:
     figb_comp.add_field(1, 'Bx_rms')
     figb_comp.add_field(2, 'By_rms')
     figb_comp.add_field(3, 'Bz_rms')
+    fig_forces = ScalarFigure(6, 1, col_in=6, fig_name='forces_trace')
+    fig_forces.add_field(0, 'f_v_mag')
+    fig_forces.add_field(0, 'f_i_mag')
+    fig_forces.add_field(0, 'f_mn_mag')
+    fig_forces.add_field(0, 'f_ml_mag')
+    fig_forces.add_field(0, 'f_b_mag')
+    fig_forces.add_field(1, 'f_v_mag')
+    fig_forces.add_field(2, 'f_i_mag')
+    fig_forces.add_field(3, 'f_ml_mag')
+    fig_forces.add_field(4, 'f_mn_mag')
+    fig_forces.add_field(5, 'f_b_mag')
 
 # Load in figures and make plots
 plotter = ScalarPlotter(root_dir, file_dir='scalar', fig_name=fig_name, start_file=start_file, n_files=n_files)
 figs = [fig1, fig2, fig3, fig4, fig5, fig6, fig7, fig8, fig9, fig10]
 if 'rotating' in root_dir: figs.append(figRo)
-if 'mhd' in root_dir: figs+=[figb_mag , figb_perp, figb_comp]
+if 'mhd' in root_dir: figs+=[figb_mag , figb_perp, figb_comp, fig_forces]
 plotter.load_figures(figs)
 plotter.plot_figures(dpi=int(args['--dpi']))
 plotter.plot_convergence_figures(dpi=int(args['--dpi']))
