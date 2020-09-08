@@ -183,7 +183,7 @@ problem.substitutions['Ey'] = 'dy(phi) + inv_Rem_ff*Jy + u*(1 + Bz) - w*Bx'
 problem.substitutions['Ez'] = 'dz(phi) + inv_Rem_ff*Jz + v*Bx - u*By'
 
 problem.substitutions['f_v_x'] = 'inv_Re_ff*Kx'
-problem.substitutions['f_ml_x'] = '(M_alfven**-2)*Jx'
+problem.substitutions['f_ml_x'] = '(M_alfven**-2)*Jy'
 problem.substitutions['f_i_x'] = 'v*Oz - w*Oy'
 problem.substitutions['f_mn_x'] = '(M_alfven**-2)*(Jy*Bz - Jz*By)'
 problem.substitutions['f_v_z'] = 'inv_Re_ff*Kz'
@@ -204,7 +204,8 @@ problem.substitutions['Re_hor'] = '(vel_rms_hor * ell)'
 problem.substitutions['Re_hor_full'] = '(vel_rms * ell)'
 problem.substitutions['b_mag']='sqrt(Bx**2 + By**2 + Bz**2)'
 problem.substitutions['b_perp']='sqrt(Bx**2 + By**2)'
-
+problem.substitutions['gp_mag']='sqrt(dx(p)**2 + dz(p)**2)'
+problem.substitutions['mod_f_ml_mag']='sqrt(dx(p)**2 - f_ml_x**2)'
 
 ### 4.Setup equations and Boundary Conditions
 problem.add_equation("dt(T1) + w*T0_z   - inv_Pe_ff*Lap(T1, T1_z)              = -UdotGrad(T1, T1_z)")
