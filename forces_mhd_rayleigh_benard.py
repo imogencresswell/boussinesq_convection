@@ -47,6 +47,8 @@ Options:
 
     --noise_modes=<N>          Number of wavenumbers to use in creating noise; for resolution testing
   
+    --fancy_ICs                If flagged, use fancy ICs that maybe don't have as bad of a transient
+    
 
 """
 import logging
@@ -312,13 +314,57 @@ checkpoint = Checkpoint(data_dir)
 checkpoint_min = 30
 restart = args['--restart']
 if restart is None:
+    p = solver.state['p']
     T1 = solver.state['T1']
     T1_z = solver.state['T1_z']
+    p.set_scales(domain.dealias)
     T1.set_scales(domain.dealias)
-    noise = global_noise(domain, int(args['--seed']), n_modes=args['--noise_modes'])
+    T1_z.set_scales(domain.dealias)
     z_de = domain.grid(-1, scales=domain.dealias)
-    T1['g'] = (1e-6*np.cos(np.pi*z_de)*noise['g'])/np.sqrt(Ra)
+
+    A0 = 1e-6
+
+    if args['--fancy_ICs']:
+        from scipy.special import erf
+        def one_to_zero(z, z0, delta):
+            return -(1/2)*(erf( (z - z0) / delta ) - 1)
+        def zero_to_one(*args):
+            return 1-one_to_zero(*args)
+
+        # for some reason I run into filesystem errors when I just use T1 to antidifferentiate for HS for HSE
+        # use a work field instead.
+        work_field  = domain.new_field()
+        work_field.set_scales(domain.dealias)
+
+        #Solve out for estimated delta T / BL depth from Nu v Ra.
+        deltaT_evolved = -1
+        d_BL           = 0.05 #make initial BLs 20% of the domain.
+
+        #Generate windowing function for boundary layers where dT/dz = -1
+        window = one_to_zero(z_de, -0.5+2*d_BL, d_BL/2) + zero_to_one(z_de, 0.5-2*d_BL, d_BL/2) 
+        T1_z['g'] = -window + 0.05
+        w_integ   = np.mean(T1_z.integrate('z')['g'])
+        T1_z['g'] *= deltaT_evolved/w_integ
+        T1_z['g'] -= (-1) #Subtract off T0z of constant coefficient.
+        T1_z.antidifferentiate('z', ('right', 0), out=T1)
+
+#        import matplotlib.pyplot as plt
+#        z = domain.grid(-1, scales=domain.dealias)
+#        plt.plot(z[0,:], 0.5 - z[0,:] + T1['g'][0,:])
+#        plt.savefig('T1_guess.png')
+
+        #Hydrostatic equilibrium
+        work_field['g'] = T1['g'] 
+        work_field.antidifferentiate(  'z', ('right', 0), out=p) #hydrostatic equilibrium
+    else:
+        logger.info("WARNING: Smart ICS not implemented for boundary condition choice.")
+    
+
+    #Add noise kick
+    noise = global_noise(domain, int(args['--seed']))
+    T1['g'] += A0*np.cos(np.pi*z_de)*noise['g']#/np.sqrt(Ra)
     T1.differentiate('z', out=T1_z)
+
 
     dt = None
     mode = 'overwrite'
