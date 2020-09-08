@@ -338,11 +338,12 @@ if restart is None:
 
         #Solve out for estimated delta T / BL depth from Nu v Ra.
         deltaT_evolved = -1
-        d_BL           = 0.05 #make initial BLs 20% of the domain.
+        d_BL           = 1/nz #make initial BLs 20% of the domain.
+
 
         #Generate windowing function for boundary layers where dT/dz = -1
         window = one_to_zero(z_de, -0.5+2*d_BL, d_BL/2) + zero_to_one(z_de, 0.5-2*d_BL, d_BL/2) 
-        T1_z['g'] = -window + 0.05
+        T1_z['g'] = -window + d_BL
         w_integ   = np.mean(T1_z.integrate('z')['g'])
         T1_z['g'] *= deltaT_evolved/w_integ
         T1_z['g'] -= (-1) #Subtract off T0z of constant coefficient.
