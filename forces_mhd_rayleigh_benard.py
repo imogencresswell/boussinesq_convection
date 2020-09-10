@@ -378,9 +378,9 @@ checkpoint.set_checkpoint(solver, wall_dt=checkpoint_min*60, mode=mode)
    
 
 ### 7. Set simulation stop parameters, output, and CFL
-if run_time_buoy is not None:    solver.stop_sim_time = run_time_buoy
-elif run_time_therm is not None: solver.stop_sim_time = run_time_therm*np.sqrt(Ra)
-else:                            solver.stop_sim_time = 1*np.sqrt(Ra)
+if run_time_buoy is not None:    solver.stop_sim_time = run_time_buoy + solver.sim_time
+elif run_time_therm is not None: solver.stop_sim_time = run_time_therm*np.sqrt(Ra) + solver.sim_time
+else:                            solver.stop_sim_time = 1*np.sqrt(Ra) + solver.sim_time
 solver.stop_wall_time = run_time_wall*3600.
 max_dt    = 0.25
 if dt is None: dt = max_dt
