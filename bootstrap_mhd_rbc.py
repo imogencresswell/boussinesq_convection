@@ -3,11 +3,12 @@ Dedalus script for 3D mhd Rayleigh-Benard convection.
 
 This script uses a Fourier basis in the horizontal direction(s) with periodic boundary
 conditions. The vertical direction is represented as Chebyshev coefficients.
-The equations are scaled in units of the buoyancy time (Fr = 1).
+The equations are scaled in units of the viscous diffusion time.
 
 By default, the boundary conditions are:
-    Velocity: Impenetrable, stress-free at both the top and bottom
-    Thermal:  Fixed flux (bottom), fixed temp (top)
+    Velocity: Impenetrable, no-slip at both the top and bottom
+    Magnetic: Conducting (top & bot)
+    Thermal:  Fixed temp (top & bot)
 
 Usage:
     bootstrap_mhd_rbc.py [options]
@@ -53,7 +54,7 @@ Options:
     --logStep=<step>     The size of step to take, in log space, while bootstrapping. 
                          Take Ra_F step of this size if α != 0, otherwise Q. [default: 1/4]
     --Nboots=<N>     Max number of bootstrap steps to take [default: 12]
-    --boot_time=<t>      Minimum time to spend on each bootstrap step, in buoyancy times. [default: 500]
+    --boot_time=<t>      Minimum time to spend on each bootstrap step, in buoyancy times. [default: 10]
     --max_dt_f=<f>       Factor to multiply on the rotational time for the max dt [default: 0.5]
 
 
@@ -64,10 +65,12 @@ import sys
 import time
 from configparser import ConfigParser
 from pathlib import Path
+from fractions import Fraction
 
 import numpy as np
 from docopt import docopt
 from mpi4py import MPI
+from pandas import DataFrame
 
 from dedalus import public as de
 from dedalus.extras import flow_tools
@@ -140,16 +143,21 @@ else:
     bases = [x_basis, z_basis]
 domain = de.Domain(bases, grid_dtype=np.float64, mesh=mesh)
 
-variables = ['T1','T1_z','p','u','w','phi','Ax','Ay','Az','Bx','By','Oy']
+variables = ['T1','T1_z','p','u','w','phi','Ax','Ay','Az','Bx','By','Oy', 'p_ml', 'p_ml_z', 'p_mn', 'p_mn_z', 'p_i', 'p_i_z', 'p_b', 'p_b_z', 'p_v', 'p_v_z']
 if threeD:
     variables+=['v','Ox']
 
 problem = de.IVP(domain, variables=variables, ncc_cutoff=1e-10)
 
-problem.parameters['Ra'] = Ra
+Q_fd  = domain.new_field()
+Ra_fd = domain.new_field()
+Q_fd['g']  = sQ  = cQ  = Q
+Ra_fd['g'] = sRa = cRa = Ra
+
+problem.parameters['Ra'] = Ra_fd
 problem.parameters['Pr'] = Pr
 problem.parameters['Pm'] = Pm
-problem.parameters['Q']  = Q
+problem.parameters['Q']  = Q_fd
 problem.parameters['pi'] = np.pi
 problem.parameters['Lx'] = problem.parameters['Ly'] = aspect
 problem.parameters['Lz'] = 1
@@ -164,6 +172,7 @@ problem.substitutions['T0']   = '(-z + 0.5)'
 problem.substitutions['T0_z'] = '-1'
 problem.substitutions['Lap(A, A_z)']=       '(dx(dx(A)) + dy(dy(A)) + dz(A_z))'
 problem.substitutions['UdotGrad(A, A_z)'] = '(u*dx(A) + v*dy(A) + w*A_z)'
+problem.substitutions['Div(Ax, Ay, Az)']  = '(dx(Ax) + dy(Ay) + dz(Az))'
 problem.substitutions["Bz"] = "dx(Ay)-dy(Ax)"
 problem.substitutions["Jx"] = "dy(Bz)-dz(By)"
 problem.substitutions["Jy"] = "dz(Bx)-dx(Bz)"
@@ -203,85 +212,131 @@ problem.substitutions['Ex'] = 'dx(phi) + inv_Rem_ff*Jx + w*By - v*(1 + Bz)'
 problem.substitutions['Ey'] = 'dy(phi) + inv_Rem_ff*Jy + u*(1 + Bz) - w*Bx'
 problem.substitutions['Ez'] = 'dz(phi) + inv_Rem_ff*Jz + v*Bx - u*By'
 
-problem.substitutions['f_v_x'] = 'inv_Re_ff*Kx'
-problem.substitutions['f_ml_x'] = '(M_alfven**-2)*Jy'
-problem.substitutions['f_i_x'] = 'v*Oz - w*Oy'
-problem.substitutions['f_mn_x'] = '(M_alfven**-2)*(Jy*Bz - Jz*By)'
-problem.substitutions['f_v_z'] = 'inv_Re_ff*Kz'
-problem.substitutions['f_i_z'] = 'u*Oy - v*Ox'
-problem.substitutions['f_mn_z'] = '(M_alfven**-2)*(Jx*By - Jy*Bx)'
-problem.substitutions['f_b'] = 'T1'
+problem.substitutions['f_v_x']   = 'Kx'
+problem.substitutions['f_v_y']   = '0'
+problem.substitutions['f_v_z']   = 'Kz'
+problem.substitutions['f_i_x']   = 'v*Oz - w*Oy'
+problem.substitutions['f_i_y']   = '0'
+problem.substitutions['f_i_z']   = 'u*Oy - v*Ox'
+problem.substitutions['f_ml_x']  = '(Q/Pr)*Jy'
+problem.substitutions['f_ml_y']  = '0'
+problem.substitutions['f_mn_x']  = '(Q/Pr)*(Jy*Bz - Jz*By)'
+problem.substitutions['f_mn_y']  = '0'
+problem.substitutions['f_mn_z']  = '(Q/Pr)*(Jx*By - Jy*Bx)'
+problem.substitutions['f_b']     = '(Ra/Pr)*T1'
 
-problem.substitutions['f_v_mag']='sqrt(f_v_x**2 + f_v_z**2)'
-problem.substitutions['f_ml_mag']='sqrt(f_ml_x**2)'
-problem.substitutions['f_i_mag']='sqrt(f_i_x**2 + f_i_z**2)'
-problem.substitutions['f_mn_mag']='sqrt(f_mn_x**2 + f_mn_z**2)'
-problem.substitutions['f_b_mag']='sqrt(f_b**2)'
+problem.substitutions['f_v_mag']  = 'sqrt(f_v_x**2 + f_v_z**2)'
+problem.substitutions['f_ml_mag'] = 'sqrt(f_ml_x**2)'
+problem.substitutions['f_i_mag']  = 'sqrt(f_i_x**2 + f_i_z**2)'
+problem.substitutions['f_mn_mag'] = 'sqrt(f_mn_x**2 + f_mn_z**2)'
+problem.substitutions['f_b_mag']  = 'sqrt(f_b**2)'
 
-problem.substitutions['Re'] = '(vel_rms / inv_Re_ff)'
-problem.substitutions['Pe'] = '(vel_rms / inv_Pe_ff)'
-problem.substitutions['Re_ver'] = '(w / inv_Re_ff)'
-problem.substitutions['Re_hor'] = '(vel_rms_hor * ell)'
+problem.substitutions['s_v_mag']  = 'sqrt((f_v_x  - dx(p_v) )**2 + (f_v_z  - dz(p_v) )**2)'
+problem.substitutions['s_ml_mag'] = 'sqrt((f_ml_x - dx(p_ml))**2 +          (dz(p_ml))**2)'
+problem.substitutions['s_i_mag']  = 'sqrt((f_i_x  - dx(p_i) )**2 + (f_i_z  - dz(p_i) )**2)'
+problem.substitutions['s_mn_mag'] = 'sqrt((f_mn_x - dx(p_mn))**2 + (f_mn_z - dz(p_mn))**2)'
+problem.substitutions['s_b_mag']  = 'sqrt(         (dx(p_b) )**2 + (f_b    - dz(p_b) )**2)'
+
+
+problem.substitutions['Re']          = '( vel_rms )'
+problem.substitutions['Pe']          = '( vel_rms )'
+problem.substitutions['Re_ver']      = '( sqrt(w**2) )'
+problem.substitutions['Re_hor']      = '( vel_rms_hor * ell)'
 problem.substitutions['Re_hor_full'] = '(vel_rms * ell)'
-problem.substitutions['b_mag']='sqrt(Bx**2 + By**2 + Bz**2)'
+problem.substitutions['b_mag'] ='sqrt(Bx**2 + By**2 + Bz**2)'
 problem.substitutions['b_perp']='sqrt(Bx**2 + By**2)'
 problem.substitutions['gp_mag']='sqrt(dx(p)**2 + dz(p)**2)'
 problem.substitutions['mod_f_ml_mag']='sqrt(dx(p)**2 - f_ml_x**2)'
 
 ### 4.Setup equations and Boundary Conditions
+if threeD:
+    zero_cond = "(nx == 0) and (ny == 0)"
+    else_cond = "(nx != 0) or  (ny != 0)"
+else:
+    zero_cond = "(nx == 0)"
+    else_cond = "(nx != 0)"
+
+
 
 eqns = (
-        (True,   "dt(T1) + w*T0_z   - inv_Pe_ff*Lap(T1, T1_z) = -UdotGrad(T1, T1_z)"),
-        (True,   "dt(u)  + dx(p)   + f_v_x - f_ml_x       = f_i_x + f_mn_x"),
-        (threeD, "dt(v)  + dy(p)   + f_v_y - f_ml_y       = f_i_y + f_mn_y "),
-        (True,   "dt(w)  + dz(p)   + f_v_z          - f_b = f_i_z + f_mn_z "),
-        (True,   "dt(Ax) + dx(phi) + inv_Rem_ff*Jx - v             = v*Bz - w*By"),
-        (True,   "dt(Ay) + dy(phi) + inv_Rem_ff*Jy + u             = w*Bx - u*Bz"),
-        (True,   "dt(Az) + dz(phi) + inv_Rem_ff*Jz                 = u*By - v*Bx"),
+        (True,   "dt(T1) + w*T0_z   - (1/Pr)*Lap(T1, T1_z) = -UdotGrad(T1, T1_z)"),
+        (True,   "dt(u)  + dx(p)   + f_v_x  =       f_i_x + f_ml_x + f_mn_x"),
+        (threeD, "dt(v)  + dy(p)   + f_v_y  =       f_i_y + f_ml_y + f_mn_y "),
+        (True,   "dt(w)  + dz(p)   + f_v_z  = f_b + f_i_z +          f_mn_z "),
+        (True,   "dt(Ax) + dx(phi) + (1/Pm)*Jx - v             = v*Bz - w*By"),
+        (True,   "dt(Ay) + dy(phi) + (1/Pm)*Jy + u             = w*Bx - u*Bz"),
+        (True,   "dt(Az) + dz(phi) + (1/Pm)*Jz                 = u*By - v*Bx"),
         (True,   "dx(u)  + dy(v)  + dz(w)  = 0"),
         (True,   "dx(Ax) + dy(Ay) + dz(Az) = 0"),
         (True,   "Bx - (dy(Az) - dz(Ay)) = 0"),
         (True,   "By - (dz(Ax) - dx(Az)) = 0"),
         (threeD, "Ox - (dy(w) - dz(v)) = 0"),
         (True,   "Oy - (dz(u) - dx(w)) = 0"),
-        (True,   "T1_z - dz(T1) = 0")
+        (True,   "T1_z - dz(T1) = 0"),
+        (True,   "Lap(p_b,  p_b_z)  = Div(0,      0,      f_b)"),
+        (True,   "Lap(p_ml, p_ml_z) = Div(f_ml_x, f_ml_y, 0)"),
+        (True,   "Lap(p_mn, p_mn_z) = Div(f_mn_x, f_mn_y, f_mn_z)"),
+        (True,   "Lap(p_i,  p_i_z)  = Div(f_i_x,  f_i_y,  f_i_z)"),
+        (True,   "Lap(p_v,  p_v_z)  = 0"),
+        (True,   "p_b_z -  dz(p_b) = 0"),
+        (True,   "p_ml_z - dz(p_ml) = 0"),
+        (True,   "p_mn_z - dz(p_mn) = 0"),
+        (True,   "p_i_z -  dz(p_i) = 0"),
+        (True,   "p_v_z -  dz(p_v) = 0"),
       )
+
+
 for do_eqn, eqn in eqns:
     if do_eqn:
         problem.add_equation(eqn)
 
 bcs  = (
-            (bc_dict['FF'],        " left(T1_z) = 0", "True"),
-            (bc_dict['FF'],        "right(T1_z) = 0", "True"),
-            (bc_dict['FT'],        " left(T1_z) = 0", "True"),
-            (bc_dict['FT'],        "right(T1)   = 0", "True"),
-            (bc_dict['TT'],        " left(T1)   = 0", "True"),
-            (bc_dict['TT'],        "right(T1)   = 0", "True"),
-            (bc_dict['FS'],        " left(Oy)   = 0", "True"),
-            (bc_dict['FS'],        "right(Oy)   = 0", "True"),
-            (bc_dict['FS']*threeD, " left(Ox)   = 0", "True"),
-            (bc_dict['FS']*threeD, "right(Ox)   = 0", "True"),
-            (bc_dict['NS'],        " left(u)    = 0", "True"),
-            (bc_dict['NS'],        "right(u)    = 0", "True"),
-            (bc_dict['NS']*threeD, " left(v)    = 0", "True"),
-            (bc_dict['NS']*threeD, "right(v)    = 0", "True"),
-            (True,                 " left(w)    = 0", "True"),
-            (True,                 "right(p)    = 0", zero_cond),
-            (True,                 "right(w)    = 0", else_cond)
-            (bc_dict['MI'],        " left(Bx)   = 0", "True"),
-            (bc_dict['MI'],        "right(Bx)   = 0", "True"),
-            (bc_dict['MI'],        " left(By)   = 0", "True"),
-            (bc_dict['MI'],        "right(By)   = 0", "True"),
-            (bc_dict['MI'],        " left(Az)   = 0", "True"),
-            (bc_dict['MI'],        "right(Az)   = 0", else_cond),
-            (bc_dict['MI'],        "right(phi)  = 0", zero_cond),
-            (bc_dict['MC'],        " left(Ax)   = 0", "True"),
-            (bc_dict['MC'],        "right(Ax)   = 0", "True"),
-            (bc_dict['MC'],        " left(Ay)   = 0", "True"),
-            (bc_dict['MC'],        "right(Ay)   = 0", "True"),
-            (bc_dict['MC'],        " left(phi)  = 0", "True"),
-            (bc_dict['MC'],        "right(phi)  = 0", else_cond),
-            (bc_dict['MI'],        "right(Az)   = 0", zero_cond)
+            (bc_dict['FF'],        " left(T1_z)     = 0", "True"),
+            (bc_dict['FF'],        "right(T1_z)     = 0", "True"),
+            (bc_dict['FT'],        " left(T1_z)     = 0", "True"),
+            (bc_dict['FT'],        "right(T1)       = 0", "True"),
+            (bc_dict['TT'],        " left(T1)       = 0", "True"),
+            (bc_dict['TT'],        "right(T1)       = 0", "True"),
+            (bc_dict['FS'],        " left(Oy)       = 0", "True"),
+            (bc_dict['FS'],        "right(Oy)       = 0", "True"),
+            (bc_dict['FS']*threeD, " left(Ox)       = 0", "True"),
+            (bc_dict['FS']*threeD, "right(Ox)       = 0", "True"),
+            (bc_dict['NS'],        " left(u)        = 0", "True"),
+            (bc_dict['NS'],        "right(u)        = 0", "True"),
+            (bc_dict['NS']*threeD, " left(v)        = 0", "True"),
+            (bc_dict['NS']*threeD, "right(v)        = 0", "True"),
+            (True,                 " left(w)        = 0", "True"),
+            (True,                 "right(p)        = 0", zero_cond),
+            (True,                 "right(w)        = 0", else_cond),
+            (bc_dict['MI'],        " left(Bx)       = 0", "True"),
+            (bc_dict['MI'],        "right(Bx)       = 0", "True"),
+            (bc_dict['MI'],        " left(By)       = 0", "True"),
+            (bc_dict['MI'],        "right(By)       = 0", "True"),
+            (bc_dict['MI'],        " left(Az)       = 0", "True"),
+            (bc_dict['MI'],        "right(Az)       = 0", else_cond),
+            (bc_dict['MI'],        "right(phi)      = 0", zero_cond),
+            (bc_dict['MC'],        " left(Ax)       = 0", "True"),
+            (bc_dict['MC'],        "right(Ax)       = 0", "True"),
+            (bc_dict['MC'],        " left(Ay)       = 0", "True"),
+            (bc_dict['MC'],        "right(Ay)       = 0", "True"),
+            (bc_dict['MC'],        " left(phi)      = 0", "True"),
+            (bc_dict['MC'],        "right(phi)      = 0", else_cond),
+            (bc_dict['MC'],        "right(Az)       = 0", zero_cond),
+            (True,                 " left(dz(p_b))  =  left(f_b)",   "True"),
+            (True,                 "right(dz(p_b))  = right(f_b)",   else_cond),
+            (True,                 "right(p_b)      = 0",            zero_cond),
+            (True,                 " left(dz(p_i))  =  left(f_i_z)", "True"),
+            (True,                 "right(dz(p_i))  = right(f_i_z)", else_cond),
+            (True,                 "right(p_i)      = 0",            zero_cond),
+            (True,                 " left(dz(p_ml)) = 0",            "True"),
+            (True,                 "right(dz(p_ml)) = 0",            else_cond),
+            (True,                 "right(p_ml)     = 0",            zero_cond),
+            (True,                 " left(dz(p_mn)) =  left(f_mn_z)", "True"),
+            (True,                 "right(dz(p_mn)) = right(f_mn_z)", else_cond),
+            (True,                 "right(p_mn)     = 0",             zero_cond),
+            (True,                 " left(dz(p_v))  =  left(f_v_z)", "True"),
+            (True,                 "right(dz(p_v))  = right(f_v_z)", else_cond),
+            (True,                 "right(p_v)      = 0",            zero_cond),
           )
 
 for do_bc, bc, cond in bcs:
@@ -332,9 +387,10 @@ if run_time_buoy is not None:    solver.stop_sim_time = run_time_buoy + solver.s
 elif run_time_therm is not None: solver.stop_sim_time = run_time_therm*np.sqrt(Ra) + solver.sim_time
 else:                            solver.stop_sim_time = 1*np.sqrt(Ra) + solver.sim_time
 solver.stop_wall_time = run_time_wall*3600.
-max_dt    = 0.25
+t_buoy = np.sqrt(Pr/Ra)
+max_dt    = 0.25*t_buoy
 if dt is None: dt = max_dt
-analysis_tasks = initialize_magnetic_output(solver, data_dir, aspect, plot_boundaries=False, threeD=threeD, mode=mode, slice_output_dt=0.25)
+analysis_tasks = initialize_magnetic_output(solver, data_dir, aspect, plot_boundaries=False, threeD=threeD, mode=mode, slice_output_dt=0.25*t_buoy, output_dt=0.1*t_buoy, out_iter=100)
 
 # CFL
 CFL = flow_tools.CFL(solver, initial_dt=dt, cadence=1, safety=cfl_safety,
@@ -346,6 +402,10 @@ else:
     
 ### 8. Setup flow tracking for terminal output, including rolling averages
 flow = flow_tools.GlobalFlowProperty(solver, cadence=1)
+flow.add_property("s_b_mag",  name='s_b_mag')
+flow.add_property("s_i_mag",  name='s_i_mag')
+flow.add_property("s_mn_mag", name='s_mn_mag')
+flow.add_property("s_ml_mag", name='s_ml_mag')
 flow.add_property("Re", name='Re')
 flow.add_property("Re_ver", name='Re_ver')
 flow.add_property("Re_hor", name='Re_hor') 
@@ -363,7 +423,7 @@ if threeD:
 
 # Bootstrap tracking fields.
 maxN = int(4e3)
-bootstrap_force_balances = np.zeros((maxN, 3))
+bootstrap_force_balances = np.zeros((maxN, 4))
 rolled = np.zeros_like(bootstrap_force_balances)
 bootstrap_df = DataFrame(bootstrap_force_balances)
 bootstrap_i         = 0
@@ -423,9 +483,9 @@ try:
         if Re_avg < 1:
             last_bootstrap_time = solver.sim_time
             last_bootstrap_write_time = solver.sim_time
-        elif (last_bootstrap_write_time - solver.sim_time) > 0.5 and (solver.sim_time - last_bootstrap_time > bootstrap_wait_time):
+        elif (last_bootstrap_write_time - solver.sim_time) > 0.5*t_buoy and (solver.sim_time - last_bootstrap_time > bootstrap_wait_time):
             # Add a write every 0.5 t_ff
-            bootstrap_force_balances[bootstrap_i,:] = (scalarWriter.tasks['sol_b_d_i'], scalarWriter.tasks['sol_b_d_c'], scalarWriter.tasks['sol_b_d_v'])
+            bootstrap_force_balances[bootstrap_i,:] = (flow.grid_average('s_i_mag'), flow.grid_average('s_b_mag'), flow.grid_average('s_mn_mag'), flow.grid_average('s_ml_mag'))
             if bootstrap_i >= bootstrap_min_iters:
                 rolled = np.array(bootstrap_df.rolling(window=maxN, min_periods=int(bootstrap_min_iters/2)).mean())
                 rms_chunk = rolled[bootstrap_i-int(bootstrap_min_iters/2):bootstrap_i]
@@ -456,16 +516,23 @@ try:
                 nQ = cQ/(10**(bootstrap_logStep))**(bootstrap_α/bootstrap_β)
 
             logger.info('bootstrapping Ra: {:.3e}->{:.3e}, Q: {:.3e} -> {:.3e}'.format(cRa, nRa, cQ, nQ))
-            grid_r_vec_tRa['g'] *= (nRa/cRa)
-            grid_ez_dQ['g']    *= (cQ/nQ)
+            Ra_fd['g'] *= (nRa/cRa)
+            Q_fd['g']  *= (cQ/nQ)
 
-            if Ro_full_t > 0.5:
-                u_factor = np.sqrt(nRa/cRa)
-            else:
-                u_factor = nRa/cRa
+            u_factor = np.sqrt(nRa/cRa)
+            u['g'] *= u_factor
+            ω['g'] *= u_factor
 
-            cQ = nQ
+            fi['g'] *= u_factor**2
+            fv['g'] *= u_factor 
+            fc['g'] *= u_factor  / (np.sqrt(nEk/cEk))
+            fb['g'] *= nRa/cRa
+
+            cEk = nEk
             cRa = nRa
+
+            t_buoy = np.sqrt(Pr/cRa)
+            bootstrap_wait_time = 100*t_buoy
 
             bootstrap_force_balances *= 0
             rolled *= 0
