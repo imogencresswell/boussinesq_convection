@@ -48,8 +48,14 @@ Options:
 
     --noise_modes=<N>          Number of wavenumbers to use in creating noise; for resolution testing
   
-    --fancy_ICs                If flagged, use fancy ICs that maybe don't have as bad of a transient
-    
+    --α=<power>          The power of Ra for the path [default: 1]
+    --β=<power>          The power of Q for the path [default: 0]
+    --logStep=<step>     The size of step to take, in log space, while bootstrapping. 
+                         Take Ra_F step of this size if α != 0, otherwise Q. [default: 1/4]
+    --Nboots=<N>     Max number of bootstrap steps to take [default: 12]
+    --boot_time=<t>      Minimum time to spend on each bootstrap step, in buoyancy times. [default: 500]
+    --max_dt_f=<f>       Factor to multiply on the rotational time for the max dt [default: 0.5]
+
 
 """
 import logging
@@ -223,92 +229,64 @@ problem.substitutions['gp_mag']='sqrt(dx(p)**2 + dz(p)**2)'
 problem.substitutions['mod_f_ml_mag']='sqrt(dx(p)**2 - f_ml_x**2)'
 
 ### 4.Setup equations and Boundary Conditions
-problem.add_equation("dt(T1) + w*T0_z   - inv_Pe_ff*Lap(T1, T1_z)              = -UdotGrad(T1, T1_z)")
 
-problem.add_equation("dt(u)  + dx(p)   + f_v_x - f_ml_x      =    f_i_x + f_mn_x")
-if threeD:
-    problem.add_equation("dt(v)  + dy(p)   + inv_Re_ff*Ky + (M_alfven**-2)*Jx  = w*Ox - u*Oz + (M_alfven**-2)*(Jz*Bx - Jx*Bz) ")
-problem.add_equation("dt(w)  + dz(p)   + f_v_z                     - f_b = f_i_z + f_mn_z ")
+eqns = (
+        (True,   "dt(T1) + w*T0_z   - inv_Pe_ff*Lap(T1, T1_z) = -UdotGrad(T1, T1_z)"),
+        (True,   "dt(u)  + dx(p)   + f_v_x - f_ml_x       = f_i_x + f_mn_x"),
+        (threeD, "dt(v)  + dy(p)   + f_v_y - f_ml_y       = f_i_y + f_mn_y "),
+        (True,   "dt(w)  + dz(p)   + f_v_z          - f_b = f_i_z + f_mn_z "),
+        (True,   "dt(Ax) + dx(phi) + inv_Rem_ff*Jx - v             = v*Bz - w*By"),
+        (True,   "dt(Ay) + dy(phi) + inv_Rem_ff*Jy + u             = w*Bx - u*Bz"),
+        (True,   "dt(Az) + dz(phi) + inv_Rem_ff*Jz                 = u*By - v*Bx"),
+        (True,   "dx(u)  + dy(v)  + dz(w)  = 0"),
+        (True,   "dx(Ax) + dy(Ay) + dz(Az) = 0"),
+        (True,   "Bx - (dy(Az) - dz(Ay)) = 0"),
+        (True,   "By - (dz(Ax) - dx(Az)) = 0"),
+        (threeD, "Ox - (dy(w) - dz(v)) = 0"),
+        (True,   "Oy - (dz(u) - dx(w)) = 0"),
+        (True,   "T1_z - dz(T1) = 0")
+      )
+for do_eqn, eqn in eqns:
+    if do_eqn:
+        problem.add_equation(eqn)
 
-problem.add_equation("dt(Ax) + dx(phi) + inv_Rem_ff*Jx - v             = v*Bz - w*By")
-problem.add_equation("dt(Ay) + dy(phi) + inv_Rem_ff*Jy + u             = w*Bx - u*Bz")
-problem.add_equation("dt(Az) + dz(phi) + inv_Rem_ff*Jz                 = u*By - v*Bx")
+bcs  = (
+            (bc_dict['FF'],        " left(T1_z) = 0", "True"),
+            (bc_dict['FF'],        "right(T1_z) = 0", "True"),
+            (bc_dict['FT'],        " left(T1_z) = 0", "True"),
+            (bc_dict['FT'],        "right(T1)   = 0", "True"),
+            (bc_dict['TT'],        " left(T1)   = 0", "True"),
+            (bc_dict['TT'],        "right(T1)   = 0", "True"),
+            (bc_dict['FS'],        " left(Oy)   = 0", "True"),
+            (bc_dict['FS'],        "right(Oy)   = 0", "True"),
+            (bc_dict['FS']*threeD, " left(Ox)   = 0", "True"),
+            (bc_dict['FS']*threeD, "right(Ox)   = 0", "True"),
+            (bc_dict['NS'],        " left(u)    = 0", "True"),
+            (bc_dict['NS'],        "right(u)    = 0", "True"),
+            (bc_dict['NS']*threeD, " left(v)    = 0", "True"),
+            (bc_dict['NS']*threeD, "right(v)    = 0", "True"),
+            (True,                 " left(w)    = 0", "True"),
+            (True,                 "right(p)    = 0", zero_cond),
+            (True,                 "right(w)    = 0", else_cond)
+            (bc_dict['MI'],        " left(Bx)   = 0", "True"),
+            (bc_dict['MI'],        "right(Bx)   = 0", "True"),
+            (bc_dict['MI'],        " left(By)   = 0", "True"),
+            (bc_dict['MI'],        "right(By)   = 0", "True"),
+            (bc_dict['MI'],        " left(Az)   = 0", "True"),
+            (bc_dict['MI'],        "right(Az)   = 0", else_cond),
+            (bc_dict['MI'],        "right(phi)  = 0", zero_cond),
+            (bc_dict['MC'],        " left(Ax)   = 0", "True"),
+            (bc_dict['MC'],        "right(Ax)   = 0", "True"),
+            (bc_dict['MC'],        " left(Ay)   = 0", "True"),
+            (bc_dict['MC'],        "right(Ay)   = 0", "True"),
+            (bc_dict['MC'],        " left(phi)  = 0", "True"),
+            (bc_dict['MC'],        "right(phi)  = 0", else_cond),
+            (bc_dict['MI'],        "right(Az)   = 0", zero_cond)
+          )
 
-problem.add_equation("dx(u)  + dy(v)  + dz(w)  = 0")
-problem.add_equation("dx(Ax) + dy(Ay) + dz(Az) = 0") #do I need dy here??
-
-problem.add_equation("Bx - (dy(Az) - dz(Ay)) = 0")
-problem.add_equation("By - (dz(Ax) - dx(Az)) = 0")
-if threeD:
-    problem.add_equation("Ox - (dy(w) - dz(v)) = 0")
-problem.add_equation("Oy - (dz(u) - dx(w)) = 0")
-problem.add_equation("T1_z - dz(T1) = 0")
-
-
-
-if bc_dict['FF']:
-    logger.info("Thermal BC: fixed flux (full form)")
-    problem.add_bc( "left(T1_z) = 0")
-    problem.add_bc("right(T1_z) = 0")
-
-elif bc_dict['FT']:
-    logger.info("Thermal BC: fixed flux/fixed temperature")
-    problem.add_bc( "left(T1_z) = 0")
-    problem.add_bc("right(T1)  = 0")
-else:
-    logger.info("Thermal BC: fixed temperature (T)")
-    problem.add_bc( "left(T1) = 0")
-    problem.add_bc("right(T1) = 0")
-
-if bc_dict['FS']:
-    logger.info("Horizontal velocity BC: stress free/free-slip")
-    problem.add_bc( "left(Oy) = 0")
-    problem.add_bc("right(Oy) = 0")
-    if threeD:
-        problem.add_bc( "left(Ox) = 0")
-        problem.add_bc("right(Ox) = 0")
-else:
-    logger.info("Horizontal velocity BC: no slip")
-    problem.add_bc( "left(u) = 0")
-    problem.add_bc("right(u) = 0")
-    if threeD:
-        problem.add_bc( "left(v) = 0")
-        problem.add_bc("right(v) = 0")
-
-logger.info("Vertical velocity BC: impenetrable")
-problem.add_bc( "left(w) = 0")
-if threeD:
-    zero_cond = "(nx == 0) and (ny == 0)"
-    else_cond = "(nx != 0) or  (ny != 0)"
-else:
-    zero_cond = "(nx == 0)"
-    else_cond = "(nx != 0)"
-    
-problem.add_bc("right(p) = 0", condition=zero_cond)
-problem.add_bc("right(w) = 0", condition=else_cond)
-    
-if bc_dict['MI']:
-    #Electrically Insulating
-    problem.add_bc(" left(Bx) = 0")
-    problem.add_bc("right(Bx) = 0")
-    problem.add_bc(" left(By) = 0")
-    problem.add_bc("right(By) = 0")
-
-    # Extra BC because vector potential
-    problem.add_bc(" left(Az) = 0")
-    problem.add_bc("right(Az) = 0",  condition=else_cond)
-    problem.add_bc("right(phi) = 0", condition=zero_cond) #Coulomb gauge
-else:
-    #Electrically Conducting
-    problem.add_bc(" left(Ax) = 0")
-    problem.add_bc("right(Ax) = 0")
-    problem.add_bc(" left(Ay) = 0")
-    problem.add_bc("right(Ay) = 0")
-
-    # Extra BC because vector potential
-    problem.add_bc(" left(phi) = 0")
-    problem.add_bc("right(phi) = 0", condition=else_cond)
-    problem.add_bc("right(Az) = 0",  condition=zero_cond)
+for do_bc, bc, cond in bcs:
+    if do_bc:
+        problem.add_bc(bc, condition=cond)
 
 ### 5. Build solver
 # Note: SBDF2 timestepper does not currently work with AE.
@@ -333,43 +311,6 @@ if restart is None:
     z_de = domain.grid(-1, scales=domain.dealias)
 
     A0 = 1e-6
-
-    if args['--fancy_ICs']:
-        from scipy.special import erf
-        def one_to_zero(z, z0, delta):
-            return -(1/2)*(erf( (z - z0) / delta ) - 1)
-        def zero_to_one(*args):
-            return 1-one_to_zero(*args)
-
-        # for some reason I run into filesystem errors when I just use T1 to antidifferentiate for HS for HSE
-        # use a work field instead.
-        work_field  = domain.new_field()
-        work_field.set_scales(domain.dealias)
-
-        #Solve out for estimated delta T / BL depth from Nu v Ra.
-        deltaT_evolved = -1
-        d_BL           = 1/nz #make initial BLs 20% of the domain.
-
-
-        #Generate windowing function for boundary layers where dT/dz = -1
-        window = one_to_zero(z_de, -0.5+2*d_BL, d_BL/2) + zero_to_one(z_de, 0.5-2*d_BL, d_BL/2) 
-        T1_z['g'] = -window + d_BL
-        w_integ   = np.mean(T1_z.integrate('z')['g'])
-        T1_z['g'] *= deltaT_evolved/w_integ
-        T1_z['g'] -= (-1) #Subtract off T0z of constant coefficient.
-        T1_z.antidifferentiate('z', ('right', 0), out=T1)
-
-#        import matplotlib.pyplot as plt
-#        z = domain.grid(-1, scales=domain.dealias)
-#        plt.plot(z[0,:], 0.5 - z[0,:] + T1['g'][0,:])
-#        plt.savefig('T1_guess.png')
-
-        #Hydrostatic equilibrium
-        work_field['g'] = T1['g'] 
-        work_field.antidifferentiate(  'z', ('right', 0), out=p) #hydrostatic equilibrium
-    else:
-        logger.info("WARNING: Smart ICS not implemented for boundary condition choice.")
-    
 
     #Add noise kick
     noise = global_noise(domain, int(args['--seed']))
@@ -419,6 +360,24 @@ flow.add_property("Nu", name='Nu')
 
 if threeD:
     Hermitian_cadence = 100
+
+# Bootstrap tracking fields.
+maxN = int(4e3)
+bootstrap_force_balances = np.zeros((maxN, 3))
+rolled = np.zeros_like(bootstrap_force_balances)
+bootstrap_df = DataFrame(bootstrap_force_balances)
+bootstrap_i         = 0
+last_bootstrap_time = 0
+last_bootstrap_write_time = 0
+bootstrap_now       = False
+bootstrap_wait_time = 100*t_buoy
+bootstrap_min_iters = int(2*(float(args['--boot_time']) - 100))
+max_bootstrap_steps = int(args['--Nboots'])
+bootstrap_steps     = 0
+
+bootstrap_α = float(Fraction(args['--α']))
+bootstrap_β = float(Fraction(args['--β']))
+bootstrap_logStep = float(Fraction(args['--logStep']))
     
 # Main loop
 try:
@@ -460,6 +419,59 @@ try:
             log_string += 'divB: {:8.3e}, '.format(flow.grid_average('divB'))
             log_string += 'Nu: {:8.3e}, '.format(flow.grid_average('Nu'))
             logger.info(log_string)
+
+        if Re_avg < 1:
+            last_bootstrap_time = solver.sim_time
+            last_bootstrap_write_time = solver.sim_time
+        elif (last_bootstrap_write_time - solver.sim_time) > 0.5 and (solver.sim_time - last_bootstrap_time > bootstrap_wait_time):
+            # Add a write every 0.5 t_ff
+            bootstrap_force_balances[bootstrap_i,:] = (scalarWriter.tasks['sol_b_d_i'], scalarWriter.tasks['sol_b_d_c'], scalarWriter.tasks['sol_b_d_v'])
+            if bootstrap_i >= bootstrap_min_iters:
+                rolled = np.array(bootstrap_df.rolling(window=maxN, min_periods=int(bootstrap_min_iters/2)).mean())
+                rms_chunk = rolled[bootstrap_i-int(bootstrap_min_iters/2):bootstrap_i]
+                rms_vals  = np.sqrt(np.mean((rms_chunk - rolled[bootstrap_i])**2/rolled[bootstrap_i]**2, axis=0))
+                logger.info('max bootstrap RMS: {:.3e}, need 0.01'.format(np.max(rms_vals)))
+                if np.max(rms_vals) < 0.01:
+                    bootstrap_now = True
+            bootstrap_i += 1
+            if bootstrap_i == maxN:
+                bootstrap_now = True
+            last_bootstrap_write_time = solver.sim_time
+            
+        if bootstrap_now:
+            if bootstrap_steps == max_bootstrap_steps:
+                logger.info("Finished bootstrap run")
+                break
+            else:
+                bootstrap_now = False
+                bootstrap_steps += 1
+            if bootstrap_β == 0:
+                nRa = cRa*10**(bootstrap_logStep)
+                nQ = cQ
+            elif bootstrap_α == 0:
+                nQ = cQ*10**(bootstrap_logStep)
+                nRa = cRa
+            else:
+                nRa = cRa*10**(bootstrap_logStep)
+                nQ = cQ/(10**(bootstrap_logStep))**(bootstrap_α/bootstrap_β)
+
+            logger.info('bootstrapping Ra: {:.3e}->{:.3e}, Q: {:.3e} -> {:.3e}'.format(cRa, nRa, cQ, nQ))
+            grid_r_vec_tRa['g'] *= (nRa/cRa)
+            grid_ez_dQ['g']    *= (cQ/nQ)
+
+            if Ro_full_t > 0.5:
+                u_factor = np.sqrt(nRa/cRa)
+            else:
+                u_factor = nRa/cRa
+
+            cQ = nQ
+            cRa = nRa
+
+            bootstrap_force_balances *= 0
+            rolled *= 0
+            bootstrap_i = 0
+            last_bootstrap_time = solver.sim_time
+
 except:
     raise
     logger.error('Exception raised, triggering end of main loop.')
