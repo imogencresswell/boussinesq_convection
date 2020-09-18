@@ -197,20 +197,19 @@ else:
     
 problem.substitutions['plane_std(A)'] = 'sqrt(plane_avg((A - plane_avg(A))**2))'
 #put vol avg here rms vlaues
-problem.substitutions['enstrophy'] = '(Ox**2 + Oy**2 + Oz**2)'
-problem.substitutions['enth_flux'] = '(w*(T1+T0))'
-problem.substitutions['cond_flux'] = '(-inv_Pe_ff*(T1_z+T0_z))'
-problem.substitutions['tot_flux'] = '(cond_flux+enth_flux)'
-problem.substitutions['momentum_rhs_z'] = '(u*Oy - v*Ox)'
-problem.substitutions['Nu'] = '((enth_flux + cond_flux)/vol_avg(cond_flux))'
-problem.substitutions['delta_T'] = '(left(T1+T0)-right(T1+T0))'
-problem.substitutions['vel_rms'] = 'sqrt(u**2 + v**2 + w**2)'
+problem.substitutions['enstrophy']   = '(Ox**2 + Oy**2 + Oz**2)'
+problem.substitutions['enth_flux']   = '(w*(T1+T0))'
+problem.substitutions['cond_flux']   = '(-(T1_z+T0_z)/Pr)'
+problem.substitutions['tot_flux']    = '(cond_flux+enth_flux)'
+problem.substitutions['Nu']          = '((enth_flux + cond_flux)/vol_avg(cond_flux))'
+problem.substitutions['delta_T']     = '(left(T1+T0)-right(T1+T0))'
+problem.substitutions['vel_rms']     = 'sqrt(u**2 + v**2 + w**2)'
 problem.substitutions['vel_rms_hor'] = 'sqrt(u**2 + v**2)'
-problem.substitutions['ell'] = 'aspect/10'
+problem.substitutions['ell']         = 'aspect/10'
 
-problem.substitutions['Ex'] = 'dx(phi) + inv_Rem_ff*Jx + w*By - v*(1 + Bz)'
-problem.substitutions['Ey'] = 'dy(phi) + inv_Rem_ff*Jy + u*(1 + Bz) - w*Bx'
-problem.substitutions['Ez'] = 'dz(phi) + inv_Rem_ff*Jz + v*Bx - u*By'
+problem.substitutions['Ex'] = 'dx(phi) + (1/Pm)*Jx + w*By       - v*(1 + Bz)'
+problem.substitutions['Ey'] = 'dy(phi) + (1/Pm)*Jy + u*(1 + Bz) - w*Bx'
+problem.substitutions['Ez'] = 'dz(phi) + (1/Pm)*Jz + v*Bx       - u*By'
 
 problem.substitutions['f_v_x']   = 'Kx'
 problem.substitutions['f_v_y']   = '0'
@@ -238,15 +237,15 @@ problem.substitutions['s_mn_mag'] = 'sqrt((f_mn_x - dx(p_mn))**2 + (f_mn_z - dz(
 problem.substitutions['s_b_mag']  = 'sqrt(         (dx(p_b) )**2 + (f_b    - dz(p_b) )**2)'
 
 
-problem.substitutions['Re']          = '( vel_rms )'
-problem.substitutions['Pe']          = '( vel_rms )'
-problem.substitutions['Re_ver']      = '( sqrt(w**2) )'
-problem.substitutions['Re_hor']      = '( vel_rms_hor * ell)'
-problem.substitutions['Re_hor_full'] = '(vel_rms * ell)'
-problem.substitutions['b_mag'] ='sqrt(Bx**2 + By**2 + Bz**2)'
-problem.substitutions['b_perp']='sqrt(Bx**2 + By**2)'
-problem.substitutions['gp_mag']='sqrt(dx(p)**2 + dz(p)**2)'
-problem.substitutions['mod_f_ml_mag']='sqrt(dx(p)**2 - f_ml_x**2)'
+problem.substitutions['Re']           = '( vel_rms )'
+problem.substitutions['Pe']           = '( vel_rms )'
+problem.substitutions['Re_ver']       = '( sqrt(w**2) )'
+problem.substitutions['Re_hor']       = '( vel_rms_hor * ell)'
+problem.substitutions['Re_hor_full']  = '(vel_rms * ell)'
+problem.substitutions['b_mag']        = 'sqrt(Bx**2 + By**2 + Bz**2)'
+problem.substitutions['b_perp']       = 'sqrt(Bx**2 + By**2)'
+problem.substitutions['gp_mag']       = 'sqrt(dx(p)**2 + dz(p)**2)'
+problem.substitutions['mod_f_ml_mag'] = 'sqrt(dx(p)**2 - f_ml_x**2)'
 
 ### 4.Setup equations and Boundary Conditions
 if threeD:
@@ -383,9 +382,7 @@ checkpoint.set_checkpoint(solver, wall_dt=checkpoint_min*60, mode=mode)
    
 
 ### 7. Set simulation stop parameters, output, and CFL
-if run_time_buoy is not None:    solver.stop_sim_time = run_time_buoy + solver.sim_time
-elif run_time_therm is not None: solver.stop_sim_time = run_time_therm*np.sqrt(Ra) + solver.sim_time
-else:                            solver.stop_sim_time = 1*np.sqrt(Ra) + solver.sim_time
+solver.stop_sim_time = np.inf
 solver.stop_wall_time = run_time_wall*3600.
 t_buoy = np.sqrt(Pr/Ra)
 max_dt    = 0.25*t_buoy
@@ -469,7 +466,7 @@ try:
             Re_avg_hor = flow.grid_average('Re_hor') 
             Re_avg_hor_full = flow.grid_average('Re_hor_full') 
             log_string =  'Iteration: {:5d}, '.format(solver.iteration)
-            log_string += 'Time: {:8.3e} ({:8.3e} therm), dt: {:8.3e}, '.format(solver.sim_time, solver.sim_time/np.sqrt(Ra),  dt)
+            log_string += 'Time: {:8.3e} ({:8.3e} buoy), dt: {:8.3e}, '.format(solver.sim_time, solver.sim_time/t_buoy,  dt)
             log_string += 'Re: {:8.3e}/{:8.3e}, '.format(Re_avg, flow.max('Re'))
             log_string += 'Re_ver: {:8.3e}/{:8.3e}, '.format(Re_avg_ver, flow.max('Re_ver'))
             log_string += 'Re_hor: {:8.3e}/{:8.3e}, '.format(Re_avg_hor, flow.max('Re_hor'))

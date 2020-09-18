@@ -3,12 +3,13 @@
     formulations of the boussinesq equations are handled in a clean way using
     classes.
 """
+import numpy as np
 import logging
 from collections import OrderedDict
 logger = logging.getLogger(__name__.split('.')[-1])
 
 def initialize_output(solver, data_dir, aspect, threeD=False, volumes=False,
-                      max_writes=20, output_dt=0.1, slice_output_dt=1, vol_output_dt=10,
+                      max_writes=20, output_dt=0.1, slice_output_dt=1, vol_output_dt=10, out_iter=np.inf,
                       mode="overwrite", **kwargs):
     """
     Sets up output from runs.
@@ -19,7 +20,7 @@ def initialize_output(solver, data_dir, aspect, threeD=False, volumes=False,
 
     # Analysis
     analysis_tasks = OrderedDict()
-    profiles = solver.evaluator.add_file_handler(data_dir+'profiles', sim_dt=output_dt, max_writes=max_writes*10, mode=mode)
+    profiles = solver.evaluator.add_file_handler(data_dir+'profiles', sim_dt=output_dt, max_writes=max_writes*10, mode=mode, iter=out_iter)
     profiles.add_task("plane_avg(T1+T0)", name="T")
     profiles.add_task("plane_avg(dz(T1+T0))", name="Tz")
     profiles.add_task("plane_avg(T1)", name="T1")
@@ -36,7 +37,7 @@ def initialize_output(solver, data_dir, aspect, threeD=False, volumes=False,
 
     analysis_tasks['profiles'] = profiles
 
-    scalar = solver.evaluator.add_file_handler(data_dir+'scalar', sim_dt=output_dt, max_writes=max_writes*100, mode=mode)
+    scalar = solver.evaluator.add_file_handler(data_dir+'scalar', sim_dt=output_dt, max_writes=max_writes*100, mode=mode, iter=out_iter)
     scalar.add_task("vol_avg(T1)", name="IE")
     scalar.add_task("vol_avg(0.5*vel_rms**2)", name="KE")
     scalar.add_task("vol_avg(T1) + vol_avg(0.5*vel_rms**2)", name="TE")
@@ -62,7 +63,7 @@ def initialize_output(solver, data_dir, aspect, threeD=False, volumes=False,
 
     if threeD:
         #Analysis
-        slices = solver.evaluator.add_file_handler(data_dir+'slices', sim_dt=slice_output_dt, max_writes=max_writes, mode=mode)
+        slices = solver.evaluator.add_file_handler(data_dir+'slices', sim_dt=slice_output_dt, max_writes=max_writes, mode=mode, iter=out_iter*(slice_output_dt/output_dt))
         slices.add_task("interp(T1 + T0,         y={})".format(0), name='T')
         slices.add_task("interp(T1 + T0,         z={})".format(0.49), name='T near top')
         slices.add_task("interp(T1 + T0,         z={})".format(-0.49), name='T near bot 1')
@@ -87,13 +88,13 @@ def initialize_output(solver, data_dir, aspect, threeD=False, volumes=False,
         analysis_tasks['scalar'].add_task("vol_avg(v)",  name="v")
 
         if volumes:
-            analysis_volume = solver.evaluator.add_file_handler(data_dir+'volumes', sim_dt=vol_output_dt, max_writes=5, mode=mode)
+            analysis_volume = solver.evaluator.add_file_handler(data_dir+'volumes', sim_dt=vol_output_dt, max_writes=5, mode=mode, iter=out_iter)
             analysis_volume.add_task("T1 + T0", name="T")
             analysis_volume.add_task("w*(T1 + T0)", name="wT")
             analysis_tasks['volumes'] = analysis_volume
     else:
         # Analysis
-        slices = solver.evaluator.add_file_handler(data_dir+'slices', sim_dt=slice_output_dt, max_writes=max_writes, mode=mode)
+        slices = solver.evaluator.add_file_handler(data_dir+'slices', sim_dt=slice_output_dt, max_writes=max_writes, mode=mode, iter=out_iter*(slice_output_dt/output_dt))
         slices.add_task("T1 + T0", name='T')
         slices.add_task("T1")
         slices.add_task("u")
@@ -105,7 +106,7 @@ def initialize_output(solver, data_dir, aspect, threeD=False, volumes=False,
         #slices.add_task("-2*R*(dz(Oy)**2 + dx(Oy)**2)", name="enstrophy_visc_source")
         analysis_tasks['slices'] = slices
 
-        powers = solver.evaluator.add_file_handler(data_dir+'powers', sim_dt=slice_output_dt, max_writes=max_writes*10, mode=mode)
+        powers = solver.evaluator.add_file_handler(data_dir+'powers', sim_dt=slice_output_dt, max_writes=max_writes*10, mode=mode, iter=out_iter*(slice_output_dt/output_dt))
         powers.add_task("interp(T1,         z={})".format(0),    name='T midplane', layout='c')
         powers.add_task("interp(T1,         z={})".format(-0.49), name='T near bot', layout='c')
         powers.add_task("interp(T1,         z={})".format(0.49), name='T near top', layout='c')
@@ -165,6 +166,14 @@ def initialize_magnetic_output(*args, plot_boundaries=True, **kwargs): #A or B h
     analysis_tasks['scalar'].add_task("vol_avg(f_mn_x)", name="f_mn_x")
     analysis_tasks['scalar'].add_task("vol_avg(f_mn_z)", name="f_mn_z")
     analysis_tasks['scalar'].add_task("vol_avg(f_b_mag)", name="f_b_mag")
+
+
+    analysis_tasks['scalar'].add_task("1 - vol_avg(p)/vol_avg(p_i + p_b + p_v + p_mn + p_ml)", name="p_goodness")
+    analysis_tasks['scalar'].add_task("vol_avg(s_v_mag)", name="s_v_mag")
+    analysis_tasks['scalar'].add_task("vol_avg(s_i_mag)", name="s_i_mag")
+    analysis_tasks['scalar'].add_task("vol_avg(s_b_mag)", name="s_b_mag")
+    analysis_tasks['scalar'].add_task("vol_avg(s_mn_mag)", name="s_mn_mag")
+    analysis_tasks['scalar'].add_task("vol_avg(s_ml_mag)", name="s_ml_mag")
     for fd in ['Bx', 'By', 'Jx', 'Jy']:
         analysis_tasks['scalar'].add_task("vol_avg(right({}))".format(fd), name="right_{}".format(fd))
         analysis_tasks['scalar'].add_task("vol_avg(left({}))".format(fd), name="left_{}".format(fd))
