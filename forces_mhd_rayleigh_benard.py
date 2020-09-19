@@ -83,7 +83,7 @@ if args['--MC']:
 if args['--FT']:
     bc_dict['TT'] = False
     bc_dict['FT'] = True
-elif args['FF']:
+elif args['--FF']:
     bc_dict['TT'] = False
     bc_dict['FF'] = True
 if args['--NS']:
