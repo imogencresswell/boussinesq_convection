@@ -112,7 +112,7 @@ if args['--FS']:
 
 if threeD: resolution_flags = ['nx', 'ny', 'nz']
 else:      resolution_flags = ['nx', 'nz']
-data_dir = construct_out_dir(args, bc_dict, base_flags=['3D', 'Q', 'Ra', 'Pr', 'Pm', 'a', 'α', 'β', 'logStep', 'Nboots'], label_flags=['noise_modes'], resolution_flags=resolution_flags)
+data_dir = construct_out_dir(args, bc_dict, base_flags=['3D', 'Q', 'Ra', 'Pr', 'Pm', 'a'], frac_flags=['α', 'β', 'logStep', 'Nboots'], label_flags=['noise_modes'], resolution_flags=resolution_flags, parent_dir_flag='root_dir')
 logger.info("saving run in: {}".format(data_dir))
 
 run_time_wall = float(args['--run_time_wall'])

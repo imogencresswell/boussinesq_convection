@@ -1,3 +1,4 @@
+from fractions import Fraction
 import sys
 import os
 from collections import OrderedDict
@@ -59,7 +60,7 @@ def construct_BC_dict(args_dict, default_T_BC='TT', default_u_BC='FS', default_M
 
     return boundary_conditions
 
-def construct_out_dir(args_dict, bc_dict, base_flags=['3D', 'Ra', 'Pr', 'a'], label_flags=['Nu_ICs', 'AE', 'TT_to_FT'], resolution_flags=['nx', 'nz'], parent_dir_flag='root_dir'):
+def construct_out_dir(args_dict, bc_dict, base_flags=['3D', 'Ra', 'Pr', 'a'], frac_flags=[], label_flags=['Nu_ICs', 'AE', 'TT_to_FT'], resolution_flags=['nx', 'nz'], parent_dir_flag=None):
     """
     Make a unique case-based string and directory for easily identifiable dedalus output
 
@@ -70,6 +71,8 @@ def construct_out_dir(args_dict, bc_dict, base_flags=['3D', 'Ra', 'Pr', 'a'], la
             A dictionary of booleans for each possible boundary condition in the problem 
         base_flags (list, optional) :
             A list of strings of default docopt flags to include if flagged
+        frac_flags (list, optional) :
+            Flags whose inputs are fractions, which should be conveted to float before string creation
         label_flags (list, optional ) :
             A list of strings of docopt flags to add to the label at the end of the directory
         resolution_flags (list, optional) :
@@ -91,6 +94,13 @@ def construct_out_dir(args_dict, bc_dict, base_flags=['3D', 'Ra', 'Pr', 'a'], la
                 data_dir += '_{}'.format(f) 
         elif args_dict[flag] is not None:
             data_dir += '_{}{}'.format(f, args_dict[flag]) 
+
+    for f in frac_flags:
+        flag = '--{}'.format(f)
+        if args_dict[flag] is not None:
+            val = float(Fraction(args_dict[flag]))
+            data_dir += '_{}{:.3f}'.format(f, val) 
+
 
     #Boundary conditions
     for k, val in bc_dict.items():

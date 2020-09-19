@@ -12,10 +12,10 @@ logStep=1/4
 Nboots=8
 boot_time=300
 
-nz=128
+nz=256
 nx=256
 
 run_time_wall=23.5
 
 label=boot1
-safety=0.7
+safety=0.4

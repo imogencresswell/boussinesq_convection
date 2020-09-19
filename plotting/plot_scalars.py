@@ -150,7 +150,7 @@ plotter = ScalarPlotter(root_dir, file_dir='scalar', fig_name=fig_name, start_fi
 figs = [fig1, fig2, fig3, fig4, fig5, fig6, fig7, fig8, fig9, fig10]
 if 'rotating' in root_dir: figs.append(figRo)
 if 'mhd' in root_dir: figs+=[figb_mag , figb_perp, figb_comp, fig_forces]
-if 'bootstrap' in root_dir: figs += [fig_p, fig_forces2]
+if 'bootstrap' in root_dir: figs += [fig_p, fig_forces2, fig_pressures, fig_inputs]
 plotter.load_figures(figs)
 plotter.plot_figures(dpi=int(args['--dpi']))
 plotter.plot_convergence_figures(dpi=int(args['--dpi']))
