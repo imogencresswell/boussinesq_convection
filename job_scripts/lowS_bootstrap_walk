@@ -1,0 +1,16 @@
+#PBS -S /bin/bash
+#PBS -N bootMHD_lowS
+#PBS -l select=3:ncpus=28:mpiprocs=28:model=bro_ele
+#PBS -l walltime=8:00:00
+#PBS -j oe
+#PBS -q normal
+#PBS -W group_list=s1647
+
+source /u/eanders/miniconda3/etc/profile.d/conda.sh
+conda activate dedalus
+cd $PBS_O_WORKDIR
+
+
+date
+mpiexec_mpt -np 64 python3 bootstrap_mhd_rbc.py config_files/boot_lowS_config1 > outBoot.1.lowS.$PBS_JOBID
+date

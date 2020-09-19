@@ -124,9 +124,24 @@ if 'bootstrap' in root_dir:
     fig_forces2.add_field(4, 's_mn_mag')
     fig_forces2.add_field(5, 's_b_mag')
 
+    fig_pressures = ScalarFigure(6, 1, col_in=6, fig_name='pressures_trace')
+    fig_pressures.add_field(0, 'p_v')
+    fig_pressures.add_field(0, 'p_i')
+    fig_pressures.add_field(0, 'p_mn')
+    fig_pressures.add_field(0, 'p_ml')
+    fig_pressures.add_field(0, 'p_b')
+    fig_pressures.add_field(1, 'p_v')
+    fig_pressures.add_field(2, 'p_i')
+    fig_pressures.add_field(3, 'p_ml')
+    fig_pressures.add_field(4, 'p_mn')
+    fig_pressures.add_field(5, 'p_b')
 
     fig_p = ScalarFigure(1, 1, col_in=6, fig_name='p_goodness')
     fig_p.add_field(0, 'p_goodness')
+
+    fig_inputs = ScalarFigure(2, 1, col_in=6, fig_name='inputs_trace')
+    fig_inputs.add_field(0, 'Ra')
+    fig_inputs.add_field(0, 'Q')
 
 
 

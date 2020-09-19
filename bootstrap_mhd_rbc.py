@@ -52,7 +52,7 @@ Options:
     --logStep=<step>     The size of step to take, in log space, while bootstrapping. 
                          Take Ra_F step of this size if α != 0, otherwise Q. [default: 1/4]
     --Nboots=<N>     Max number of bootstrap steps to take [default: 12]
-    --boot_time=<t>      Minimum time to spend on each bootstrap step, in buoyancy times. [default: 10]
+    --boot_time=<t>      Minimum time to spend on each bootstrap step, in buoyancy times. [default: 100]
 
 
 """
@@ -382,7 +382,7 @@ else:
     logger.info("restarting from {}".format(restart))
     dt = checkpoint.restart(restart, solver)
     mode = 'append'
-checkpoint.set_checkpoint(solver, wall_dt=checkpoint_min*60, mode=mode)
+checkpoint.set_checkpoint(solver, wall_dt=checkpoint_min*60, mode=mode, iter=5e3)
    
 
 ### 7. Set simulation stop parameters, output, and CFL
@@ -405,6 +405,8 @@ analysis_tasks['scalar'].add_task("vol_avg(s_i_mag)", name="s_i_mag")
 analysis_tasks['scalar'].add_task("vol_avg(s_b_mag)", name="s_b_mag")
 analysis_tasks['scalar'].add_task("vol_avg(s_mn_mag)", name="s_mn_mag")
 analysis_tasks['scalar'].add_task("vol_avg(s_ml_mag)", name="s_ml_mag")
+analysis_tasks['scalar'].add_task("vol_avg(Ra)", name="Ra")
+analysis_tasks['scalar'].add_task("vol_avg(Q)",  name="Q")
 
 
 # CFL
@@ -414,11 +416,13 @@ if threeD:
     CFL.add_velocities(('u', 'v', 'w'))
 else:
     CFL.add_velocities(('u', 'w'))
+
     
 ### 8. Setup flow tracking for terminal output, including rolling averages
 flow = flow_tools.GlobalFlowProperty(solver, cadence=1)
 flow.add_property("s_b_mag",  name='s_b_mag')
 flow.add_property("s_i_mag",  name='s_i_mag')
+flow.add_property("s_v_mag",  name='s_v_mag')
 flow.add_property("s_mn_mag", name='s_mn_mag')
 flow.add_property("s_ml_mag", name='s_ml_mag')
 flow.add_property("Re", name='Re')
@@ -437,6 +441,8 @@ if threeD:
     Hermitian_cadence = 100
 
 # Bootstrap tracking fields.
+u = solver.state['u']
+w = solver.state['w']
 maxN = int(4e3)
 bootstrap_force_balances = np.zeros((maxN, 4))
 rolled = np.zeros_like(bootstrap_force_balances)
@@ -446,7 +452,7 @@ last_bootstrap_time = 0
 last_bootstrap_write_time = 0
 bootstrap_now       = False
 bootstrap_wait_time = 100*t_buoy
-bootstrap_min_iters = int(2*(float(args['--boot_time']) - 100))
+bootstrap_min_iters = int(2*(float(args['--boot_time']) - 50))
 max_bootstrap_steps = int(args['--Nboots'])
 bootstrap_steps     = 0
 
@@ -498,9 +504,10 @@ try:
         if Re_avg < 1:
             last_bootstrap_time = solver.sim_time
             last_bootstrap_write_time = solver.sim_time
-        elif (last_bootstrap_write_time - solver.sim_time) > 0.5*t_buoy and (solver.sim_time - last_bootstrap_time > bootstrap_wait_time):
+        elif (solver.sim_time - last_bootstrap_write_time > 0.5*t_buoy) and (solver.sim_time - last_bootstrap_time > bootstrap_wait_time):
             # Add a write every 0.5 t_ff
-            bootstrap_force_balances[bootstrap_i,:] = (flow.grid_average('s_i_mag'), flow.grid_average('s_b_mag'), flow.grid_average('s_mn_mag'), flow.grid_average('s_ml_mag'))
+            s_b_mag = flow.grid_average('s_b_mag')
+            bootstrap_force_balances[bootstrap_i,:] = (s_b_mag/flow.grid_average('s_i_mag'), s_b_mag/flow.grid_average('s_mn_mag'), s_b_mag/flow.grid_average('s_ml_mag'), s_b_mag/flow.grid_average('s_v_mag'))
             if bootstrap_i >= bootstrap_min_iters:
                 rolled = np.array(bootstrap_df.rolling(window=maxN, min_periods=int(bootstrap_min_iters/2)).mean())
                 rms_chunk = rolled[bootstrap_i-int(bootstrap_min_iters/2):bootstrap_i]
@@ -532,22 +539,18 @@ try:
 
             logger.info('bootstrapping Ra: {:.3e}->{:.3e}, Q: {:.3e} -> {:.3e}'.format(cRa, nRa, cQ, nQ))
             Ra_fd['g'] *= (nRa/cRa)
-            Q_fd['g']  *= (cQ/nQ)
+            Q_fd['g']  *= (nQ/cQ)
 
             u_factor = np.sqrt(nRa/cRa)
             u['g'] *= u_factor
-            ω['g'] *= u_factor
+            w['g'] *= u_factor
 
-            fi['g'] *= u_factor**2
-            fv['g'] *= u_factor 
-            fc['g'] *= u_factor  / (np.sqrt(nEk/cEk))
-            fb['g'] *= nRa/cRa
+            bootstrap_wait_time *= (cRa/nRa)
 
-            cEk = nEk
+            cQ = nQ
             cRa = nRa
 
             t_buoy = np.sqrt(Pr/cRa)
-            bootstrap_wait_time = 100*t_buoy
 
             bootstrap_force_balances *= 0
             rolled *= 0

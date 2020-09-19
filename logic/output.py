@@ -168,12 +168,6 @@ def initialize_magnetic_output(*args, plot_boundaries=True, **kwargs): #A or B h
     analysis_tasks['scalar'].add_task("vol_avg(f_b_mag)", name="f_b_mag")
 
 
-    analysis_tasks['scalar'].add_task("1 - vol_avg(p)/vol_avg(p_i + p_b + p_v + p_mn + p_ml)", name="p_goodness")
-    analysis_tasks['scalar'].add_task("vol_avg(s_v_mag)", name="s_v_mag")
-    analysis_tasks['scalar'].add_task("vol_avg(s_i_mag)", name="s_i_mag")
-    analysis_tasks['scalar'].add_task("vol_avg(s_b_mag)", name="s_b_mag")
-    analysis_tasks['scalar'].add_task("vol_avg(s_mn_mag)", name="s_mn_mag")
-    analysis_tasks['scalar'].add_task("vol_avg(s_ml_mag)", name="s_ml_mag")
     for fd in ['Bx', 'By', 'Jx', 'Jy']:
         analysis_tasks['scalar'].add_task("vol_avg(right({}))".format(fd), name="right_{}".format(fd))
         analysis_tasks['scalar'].add_task("vol_avg(left({}))".format(fd), name="left_{}".format(fd))
