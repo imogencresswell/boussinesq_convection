@@ -34,8 +34,6 @@ Options:
     --mesh=<mesh>              Processor mesh if distributing 3D run in 2D 
     
     --run_time_wall=<time>     Run time, in hours [default: 23.5]
-    --run_time_buoy=<time>     Run time, in buoyancy times
-    --run_time_therm=<time_>   Run time, in thermal times [default: 1]
 
     --restart=<file>           Restart from checkpoint file
     --overwrite                If flagged, force file mode to overwrite
@@ -55,7 +53,6 @@ Options:
                          Take Ra_F step of this size if α != 0, otherwise Q. [default: 1/4]
     --Nboots=<N>     Max number of bootstrap steps to take [default: 12]
     --boot_time=<t>      Minimum time to spend on each bootstrap step, in buoyancy times. [default: 10]
-    --max_dt_f=<f>       Factor to multiply on the rotational time for the max dt [default: 0.5]
 
 
 """
@@ -99,19 +96,26 @@ if args['<config>'] is not None:
 ### 1. Read in command-line args, set up data directory
 threeD = args['--3D']
 bc_dict = construct_BC_dict(args, default_T_BC='TT', default_u_BC='NS', default_M_BC='MC')
+if args['--MI']:
+    bc_dict['MC'] = False
+    bc_dict['MI'] = True
+if args['--FT']:
+    bc_dict['TT'] = False
+    bc_dict['FT'] = True
+elif args['FF']:
+    bc_dict['TT'] = False
+    bc_dict['FF'] = True
+if args['--FS']:
+    bc_dict['NS'] = False
+    bc_dict['FS'] = True
+    
 
 if threeD: resolution_flags = ['nx', 'ny', 'nz']
 else:      resolution_flags = ['nx', 'nz']
-data_dir = construct_out_dir(args, bc_dict, base_flags=['3D', 'Q', 'Ra', 'Pr', 'Pm', 'a'], label_flags=['noise_modes'], resolution_flags=resolution_flags)
+data_dir = construct_out_dir(args, bc_dict, base_flags=['3D', 'Q', 'Ra', 'Pr', 'Pm', 'a', 'α', 'β', 'logStep', 'Nboots'], label_flags=['noise_modes'], resolution_flags=resolution_flags)
 logger.info("saving run in: {}".format(data_dir))
 
-run_time_buoy = args['--run_time_buoy']
-run_time_therm = args['--run_time_therm']
 run_time_wall = float(args['--run_time_wall'])
-if run_time_buoy is not None:
-    run_time_buoy = float(run_time_buoy)
-if run_time_therm is not None:
-    run_time_therm = float(run_time_therm)
 
 mesh = args['--mesh']
 if mesh is not None:
@@ -388,6 +392,20 @@ t_buoy = np.sqrt(Pr/Ra)
 max_dt    = 0.25*t_buoy
 if dt is None: dt = max_dt
 analysis_tasks = initialize_magnetic_output(solver, data_dir, aspect, plot_boundaries=False, threeD=threeD, mode=mode, slice_output_dt=0.25*t_buoy, output_dt=0.1*t_buoy, out_iter=100)
+
+#Add extra analysis tasks
+analysis_tasks['scalar'].add_task("1 - vol_avg(p)/vol_avg(p_i + p_b + p_v + p_mn + p_ml)", name="p_goodness")
+analysis_tasks['scalar'].add_task("vol_avg(sqrt(p_i**2))", name="p_i")
+analysis_tasks['scalar'].add_task("vol_avg(sqrt(p_b**2))", name="p_b")
+analysis_tasks['scalar'].add_task("vol_avg(sqrt(p_v**2))", name="p_v")
+analysis_tasks['scalar'].add_task("vol_avg(sqrt(p_ml**2))", name="p_ml")
+analysis_tasks['scalar'].add_task("vol_avg(sqrt(p_mn**2))", name="p_mn")
+analysis_tasks['scalar'].add_task("vol_avg(s_v_mag)", name="s_v_mag")
+analysis_tasks['scalar'].add_task("vol_avg(s_i_mag)", name="s_i_mag")
+analysis_tasks['scalar'].add_task("vol_avg(s_b_mag)", name="s_b_mag")
+analysis_tasks['scalar'].add_task("vol_avg(s_mn_mag)", name="s_mn_mag")
+analysis_tasks['scalar'].add_task("vol_avg(s_ml_mag)", name="s_ml_mag")
+
 
 # CFL
 CFL = flow_tools.CFL(solver, initial_dt=dt, cadence=1, safety=cfl_safety,

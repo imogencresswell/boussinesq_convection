@@ -77,6 +77,19 @@ args = docopt(__doc__)
 ### 1. Read in command-line args, set up data directory
 threeD = not(args['--2.5D'])
 bc_dict = construct_BC_dict(args, default_T_BC='TT', default_u_BC='FS', default_M_BC='MI')
+if args['--MC']:
+    bc_dict['MI'] = False
+    bc_dict['MC'] = True
+if args['--FT']:
+    bc_dict['TT'] = False
+    bc_dict['FT'] = True
+elif args['FF']:
+    bc_dict['TT'] = False
+    bc_dict['FF'] = True
+if args['--NS']:
+    bc_dict['FS'] = False
+    bc_dict['NS'] = True
+ 
 
 if threeD: resolution_flags = ['nx', 'ny', 'nz']
 else:      resolution_flags = ['nx', 'nz']
