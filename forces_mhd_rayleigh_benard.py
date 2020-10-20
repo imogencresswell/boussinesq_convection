@@ -93,7 +93,7 @@ if args['--NS']:
 
 if threeD: resolution_flags = ['nx', 'ny', 'nz']
 else:      resolution_flags = ['nx', 'nz']
-data_dir = construct_out_dir(args, bc_dict, base_flags=['2.5D', 'Q', 'Ra', 'Pr', 'Pm', 'a'], label_flags=['noise_modes'], resolution_flags=resolution_flags)
+data_dir = construct_out_dir(args, bc_dict, base_flags=['2.5D', 'Q', 'Ra', 'Pr', 'Pm', 'a'], label_flags=['noise_modes'], resolution_flags=resolution_flags, parent_dir_flag='root_dir')
 logger.info("saving run in: {}".format(data_dir))
 
 run_time_buoy = args['--run_time_buoy']
