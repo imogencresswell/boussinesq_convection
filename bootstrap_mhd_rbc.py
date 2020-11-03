@@ -47,14 +47,15 @@ Options:
 
     --noise_modes=<N>          Number of wavenumbers to use in creating noise; for resolution testing
   
-    --α=<power>          The power of Ra for the path [default: 1]
+    --alp=<power>          The power of Ra for the path [default: 1]
     --β=<power>          The power of Q for the path [default: 0]
     --logStep=<step>     The size of step to take, in log space, while bootstrapping. 
                          Take Ra_F step of this size if α != 0, otherwise Q. [default: 1/4]
     --Nboots=<N>     Max number of bootstrap steps to take [default: 12]
     --boot_time=<t>      Minimum time to spend on each bootstrap step, in buoyancy times. [default: 100]
-
-
+    --SBDF2              Uses SBDF2 timestepper
+    --SBDF4              Uses SBDF4 timestepper
+    --factor=<f>         Factor for timestepping
 """
 import logging
 import os
@@ -112,7 +113,7 @@ if args['--FS']:
 
 if threeD: resolution_flags = ['nx', 'ny', 'nz']
 else:      resolution_flags = ['nx', 'nz']
-data_dir = construct_out_dir(args, bc_dict, base_flags=['3D', 'Q', 'Ra', 'Pr', 'Pm', 'a'], frac_flags=['α', 'β', 'logStep', 'Nboots'], label_flags=['noise_modes'], resolution_flags=resolution_flags, parent_dir_flag='root_dir')
+data_dir = construct_out_dir(args, bc_dict, base_flags=['3D', 'Q', 'Ra', 'Pr', 'Pm', 'a'], frac_flags=['alp', 'β', 'logStep', 'Nboots'], label_flags=['noise_modes'], resolution_flags=resolution_flags, parent_dir_flag='root_dir')
 logger.info("saving run in: {}".format(data_dir))
 
 run_time_wall = float(args['--run_time_wall'])
@@ -347,9 +348,16 @@ for do_bc, bc, cond in bcs:
         problem.add_bc(bc, condition=cond)
 
 ### 5. Build solver
-# Note: SBDF2 timestepper does not currently work with AE.
-#ts = de.timesteppers.SBDF2
-ts = de.timesteppers.RK443
+# Note: SBDF2 timestepper does not currently work with AE
+
+if args['--SBDF2']:
+    ts = de.timesteppers.SBDF2
+if args['--SBDF4']:
+    ts = de.timesteppers.SBDF4
+else:
+    ts = de.timesteppers.RK443
+
+
 cfl_safety = float(args['--safety'])
 solver = problem.build_solver(ts)
 logger.info('Solver built')
@@ -389,7 +397,8 @@ checkpoint.set_checkpoint(solver, wall_dt=checkpoint_min*60, mode=mode, iter=5e3
 solver.stop_sim_time = np.inf
 solver.stop_wall_time = run_time_wall*3600.
 t_buoy = np.sqrt(Pr/Ra)
-max_dt    = 0.25*t_buoy
+f=float(args['--factor'])
+max_dt    = 0.5*np.min((t_buoy, f/Q))
 if dt is None: dt = max_dt
 analysis_tasks = initialize_magnetic_output(solver, data_dir, aspect, plot_boundaries=False, threeD=threeD, mode=mode, slice_output_dt=0.25*t_buoy, output_dt=0.1*t_buoy, out_iter=100)
 
@@ -451,12 +460,12 @@ bootstrap_i         = 0
 last_bootstrap_time = 0
 last_bootstrap_write_time = 0
 bootstrap_now       = False
-bootstrap_wait_time = 100*t_buoy
+bootstrap_wait_time = 20*t_buoy
 bootstrap_min_iters = int(2*(float(args['--boot_time']) - 50))
 max_bootstrap_steps = int(args['--Nboots'])
 bootstrap_steps     = 0
 
-bootstrap_α = float(Fraction(args['--α']))
+bootstrap_α = float(Fraction(args['--alp']))
 bootstrap_β = float(Fraction(args['--β']))
 bootstrap_logStep = float(Fraction(args['--logStep']))
     
@@ -501,25 +510,30 @@ try:
             log_string += 'Nu: {:8.3e}, '.format(flow.grid_average('Nu'))
             logger.info(log_string)
 
+       # if Re_avg < 1:
+       #     last_bootstrap_time = solver.sim_time
+       #     last_bootstrap_write_time = solver.sim_time
+       # elif (solver.sim_time - last_bootstrap_write_time > 0.5*t_buoy) and (solver.sim_time - last_bootstrap_time > bootstrap_wait_time):
+       #     # Add a write every 0.5 t_ff
+       #     s_b_mag = flow.grid_average('s_b_mag')
+       #     bootstrap_force_balances[bootstrap_i,:] = (s_b_mag/flow.grid_average('s_i_mag'), s_b_mag/flow.grid_average('s_mn_mag'), s_b_mag/flow.grid_average('s_ml_mag'), s_b_mag/flow.grid_average('s_v_mag'))
+       #     if bootstrap_i >= bootstrap_min_iters:
+       #         rolled = np.array(bootstrap_df.rolling(window=maxN, min_periods=int(bootstrap_min_iters/2)).mean())
+       #         rms_chunk = rolled[bootstrap_i-int(bootstrap_min_iters/2):bootstrap_i]
+       #         rms_vals  = np.sqrt(np.mean((rms_chunk - rolled[bootstrap_i])**2/rolled[bootstrap_i]**2, axis=0))
+       #         logger.info('max bootstrap RMS: {:.3e}, need 0.01'.format(np.max(rms_vals)))
+       #         if np.max(rms_vals) < 0.01:
+       #             bootstrap_now = True
+       #     bootstrap_i += 1
+       #     if bootstrap_i == maxN:
+       #         bootstrap_now = True
+       #     last_bootstrap_write_time = solver.sim_time
         if Re_avg < 1:
             last_bootstrap_time = solver.sim_time
-            last_bootstrap_write_time = solver.sim_time
-        elif (solver.sim_time - last_bootstrap_write_time > 0.5*t_buoy) and (solver.sim_time - last_bootstrap_time > bootstrap_wait_time):
-            # Add a write every 0.5 t_ff
-            s_b_mag = flow.grid_average('s_b_mag')
-            bootstrap_force_balances[bootstrap_i,:] = (s_b_mag/flow.grid_average('s_i_mag'), s_b_mag/flow.grid_average('s_mn_mag'), s_b_mag/flow.grid_average('s_ml_mag'), s_b_mag/flow.grid_average('s_v_mag'))
-            if bootstrap_i >= bootstrap_min_iters:
-                rolled = np.array(bootstrap_df.rolling(window=maxN, min_periods=int(bootstrap_min_iters/2)).mean())
-                rms_chunk = rolled[bootstrap_i-int(bootstrap_min_iters/2):bootstrap_i]
-                rms_vals  = np.sqrt(np.mean((rms_chunk - rolled[bootstrap_i])**2/rolled[bootstrap_i]**2, axis=0))
-                logger.info('max bootstrap RMS: {:.3e}, need 0.01'.format(np.max(rms_vals)))
-                if np.max(rms_vals) < 0.01:
-                    bootstrap_now = True
-            bootstrap_i += 1
-            if bootstrap_i == maxN:
-                bootstrap_now = True
-            last_bootstrap_write_time = solver.sim_time
-            
+        elif solver.sim_time - last_bootstrap_time > bootstrap_wait_time:
+            bootstrap_now = True
+             
+
         if bootstrap_now:
             if bootstrap_steps == max_bootstrap_steps:
                 logger.info("Finished bootstrap run")
@@ -546,6 +560,14 @@ try:
             w['g'] *= u_factor
 
             bootstrap_wait_time *= (cRa/nRa)
+            max_dt *= (cRa/nRa)
+            CFL.max_dt=max_dt
+           # CFL = flow_tools.CFL(solver, initial_dt=dt, cadence=1, safety=cfl_safety,
+           #                        max_change=1.5, min_change=0.5, max_dt=max_dt, threshold=0.1)
+            if threeD: 
+                CFL.add_velocities(('u', 'v', 'w'))
+            else: 
+                CFL.add_velocities(('u', 'w'))
 
             cQ = nQ
             cRa = nRa
