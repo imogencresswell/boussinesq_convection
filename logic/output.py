@@ -145,7 +145,7 @@ def initialize_rotating_output(*args, **kwargs):
 
     return analysis_tasks
 
-def initialize_magnetic_output(*args, plot_boundaries=True, **kwargs): #A or B here ?
+def initialize_magnetic_output(*args, plot_boundaries=True, forces=True, **kwargs): #A or B here ?
     analysis_tasks = initialize_output(*args, **kwargs)
     analysis_tasks['scalar'].add_task("vol_avg(b_mag)", name="b_mag")
     analysis_tasks['scalar'].add_task("vol_avg(b_perp)", name="b_perp")
@@ -155,17 +155,18 @@ def initialize_magnetic_output(*args, plot_boundaries=True, **kwargs): #A or B h
     analysis_tasks['scalar'].add_task("sqrt(vol_avg(Bx**2))", name="Bx_rms")
     analysis_tasks['scalar'].add_task("sqrt(vol_avg(By**2))", name="By_rms")
     analysis_tasks['scalar'].add_task("sqrt(vol_avg(Bz**2))", name="Bz_rms")
-    analysis_tasks['scalar'].add_task("vol_avg(f_v_mag)", name="f_v_mag")
-    analysis_tasks['scalar'].add_task("vol_avg(f_v_x)", name="f_v_x")
-    analysis_tasks['scalar'].add_task("vol_avg(f_v_z)", name="f_v_z")
-    analysis_tasks['scalar'].add_task("vol_avg(f_ml_mag)", name="f_ml_mag")
-    analysis_tasks['scalar'].add_task("vol_avg(f_i_mag)", name="f_i_mag")
-    analysis_tasks['scalar'].add_task("vol_avg(f_i_x)", name="f_i_x")
-    analysis_tasks['scalar'].add_task("vol_avg(f_i_z)", name="f_i_z")
-    analysis_tasks['scalar'].add_task("vol_avg(f_mn_mag)", name="f_mn_mag")
-    analysis_tasks['scalar'].add_task("vol_avg(f_mn_x)", name="f_mn_x")
-    analysis_tasks['scalar'].add_task("vol_avg(f_mn_z)", name="f_mn_z")
-    analysis_tasks['scalar'].add_task("vol_avg(f_b_mag)", name="f_b_mag")
+    if forces:
+        analysis_tasks['scalar'].add_task("vol_avg(f_v_mag)", name="f_v_mag")
+        analysis_tasks['scalar'].add_task("vol_avg(f_v_x)", name="f_v_x")
+        analysis_tasks['scalar'].add_task("vol_avg(f_v_z)", name="f_v_z")
+        analysis_tasks['scalar'].add_task("vol_avg(f_ml_mag)", name="f_ml_mag")
+        analysis_tasks['scalar'].add_task("vol_avg(f_i_mag)", name="f_i_mag")
+        analysis_tasks['scalar'].add_task("vol_avg(f_i_x)", name="f_i_x")
+        analysis_tasks['scalar'].add_task("vol_avg(f_i_z)", name="f_i_z")
+        analysis_tasks['scalar'].add_task("vol_avg(f_mn_mag)", name="f_mn_mag")
+        analysis_tasks['scalar'].add_task("vol_avg(f_mn_x)", name="f_mn_x")
+        analysis_tasks['scalar'].add_task("vol_avg(f_mn_z)", name="f_mn_z")
+        analysis_tasks['scalar'].add_task("vol_avg(f_b_mag)", name="f_b_mag")
 
 
     for fd in ['Bx', 'By', 'Jx', 'Jy']:
